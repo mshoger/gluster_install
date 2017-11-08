@@ -1,0 +1,103 @@
+# file: gclient_install.yml
+# Created by Mark Shoger, Red Hat - mshoger@redhat.com
+# invocation: ansible-playbook -i inventory gclient-install.yml
+# Note that this playbook assumes that you have a basic RHEL 7 node ready to go.
+# This includes the static hostname(s) of the client(s) in the inventory file [clients] section.
+# Note that this only installs the Gluster Client and FUSE client. Others can be specified.
+---
+- hosts: clients
+  vars:
+    gluster_repos:
+      - rhel-7-server-rpms
+      - rhel-7-server-extras-rpms
+      - rhel-7-server-optional-rpms
+      - rhel-7-server-supplementary-rpms
+
+    firewall_ports:
+      - 24009-24108/tcp
+      - 49152-49251/tcp
+# This section prompts you for your RHN credentials and Pool ID. You need those prior to running the playbook.
+  vars_prompt:
+    - name: "rhsm_username"
+      prompt: "Enter RHN/RHSM Username"
+      private: no
+
+    - name: "rhsm_password"
+      prompt: "Enter RHN/RHSM Password"
+      private: yes
+
+    - name: "poolid"
+      prompt: "Enter Red Hat Pool ID"
+      private: no
+
+  tasks:
+  - name: Register with Red Hat
+    redhat_subscription:
+      state: present
+      username: "{{ rhsm_username }}"
+      password: "{{ rhsm_password }}"
+      autosubscribe: false
+      force_register: true
+    ignore_errors: True
+    async: 60
+    poll: 10
+    tags:
+      - rhsm
+
+  - name: Attach Pool
+    command: subscription-manager attach --pool "{{ poolid }}"
+    ignore_errors: True
+    async: 60
+    poll: 10
+    tags:
+      - rhsm
+
+  - name: Disable all repos
+    command: subscription-manager repos --disable "*"
+    tags:
+      - repos
+
+  - name: Enable repos for RHEL 7
+    command: subscription-manager repos --enable {{ item }}
+    with_items: "{{ gluster_repos }}"
+    tags:
+      - repos
+
+  - name: Install firewalld
+    yum:
+      name: firewalld
+      state: latest
+
+  - name: Start firewalld
+    systemd:
+      name: firewalld
+      enabled: yes
+      state: started
+
+  - name: Install gluster client
+    yum:
+      name: glusterfs
+      state: latest
+
+  - name: Install fuse client
+    yum:
+      name: glusterfs-fuse
+      state: latest
+
+  - name: Configure Firewall (ports)
+    firewalld:
+      port: "{{ item }}"
+      permanent: true
+      immediate: true
+      state: enabled
+    with_items: "{{ firewall_ports }}"
+
+  - name: Install misc packages
+    yum:
+      name: "{{ item }}"
+      state: latest
+    with_items:
+      - cockpit
+      - vim
+    tags:
+      - misc

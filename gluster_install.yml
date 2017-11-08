@@ -1,0 +1,176 @@
+# file: gluster_install.yml
+# Created by Mark Shoger, Red Hat - mshoger@redhat.com
+# Based on Mike Flannery's manly gluster playbook. Modified for AWS.
+# invocation: ansible-playbook -i inventory gluster-install.yml
+# Note that this playbook assumes that you have basic RHEL 7 nodes ready to go.
+# This includes static IP addresses and forward & reverse DNS working.
+# Node names should be in the [nodes] section of the inventory file.
+---
+- hosts: nodes
+  vars:
+    gluster_repos:
+      - rhel-7-server-rpms
+      - rhel-7-server-extras-rpms
+      - rhel-7-server-optional-rpms
+      - rhel-ha-for-rhel-7-server-rpms
+      - rh-gluster-3-for-rhel-7-server-rpms
+      - rh-gluster-3-nfs-for-rhel-7-server-rpms
+      - rh-gluster-3-samba-for-rhel-7-server-rpms
+      - rh-gluster-3-nagios-for-rhel-7-server-rpms
+
+    firewall_services:
+      - glusterfs
+      - nlm
+      - nfs
+      - rpc-bind
+      - high-availability
+      - mountd
+      - rquota
+      - ssh
+      - samba
+      - https
+      - vdsm
+
+    firewall_ports:
+      - 662/tcp
+      - 662/udp
+      - 963/udp
+      - 965/tcp
+      - 5666-5667/tcp
+      - 6010-6012/tcp
+      - 8080/tcp
+      - 24009-24108/tcp
+      - 32803/udp
+      - 32769/udp
+      - 39543/tcp
+      - 55863/tcp
+
+  vars_prompt:
+    - name: "rhsm_username"
+      prompt: "Enter RHN/RHSM Username"
+      private: no
+
+    - name: "rhsm_password"
+      prompt: "Enter RHN/RHSM Password"
+      private: yes
+
+    - name: "poolid"
+      prompt: "Enter Red Hat Pool ID"
+      private: no
+
+  tasks:
+  - name: Register with Red Hat
+    redhat_subscription:
+      state: present
+      username: "{{ rhsm_username }}"
+      password: "{{ rhsm_password }}"
+      pool_ids: "{{ poolid }}"
+      autosubscribe: false
+      force_register: true
+    ignore_errors: True
+    async: 60
+    poll: 10
+    tags:
+      - rhsm
+
+  - name: Disable all repos
+    command: subscription-manager repos --disable "*"
+    tags:
+      - repos
+
+  - name: Enable repo for RHEL 7
+    command: subscription-manager repos --enable {{ item }}
+    with_items: "{{ gluster_repos }}"
+    tags:
+      - repos
+
+  - name: Install firewalld
+    yum:
+      name: firewalld
+      state: latest
+
+  - name: Start firewalld
+    systemd:
+      name: firewalld
+      enabled: yes
+      state: started
+
+  - name: Install gluster
+    yum:
+      name: redhat-storage-server
+      state: latest
+
+  - name: Install NFS-Ganesha
+    yum:
+      name: glusterfs-ganesha
+      state: latest
+
+  - name: Install gstatus
+    yum:
+      name: gstatus
+      state: latest
+
+  - name: Install Samba
+    yum:
+      name: "{{ item }}"
+      state: latest
+    with_items:
+      - samba
+      - samba-client
+
+  - name: Install AD Integration
+    yum:
+      name: "{{ item }}"
+      state: latest
+    with_items:
+      - samba-winbind
+      - samba-winbind-clients
+      - samba-winbind-krb5-locator
+      - samba-winbind-modules
+
+  - name: Configure Firewall (services)
+    firewalld:
+      service: "{{ item }}"
+      permanent: true
+      immediate: true
+      state: enabled
+    with_items: "{{ firewall_services }}"
+
+  - name: Configure Firewall (ports)
+    firewalld:
+      port: "{{ item }}"
+      permanent: true
+      immediate: true
+      state: enabled
+    with_items: "{{ firewall_ports }}"
+
+  - name: Set new SELinux booleans ganesha_use_fusefs and gluster_use_execmem
+    command: "setsebool -P {{ item }} on"
+    with_items:
+      - ganesha_use_fusefs
+      - gluster_use_execmem
+    tags:
+      - selinux
+
+  - name: Start glusterd
+    systemd:
+      name: glusterd
+      enabled: yes
+      state: started
+
+  - name: Install misc packages
+    yum:
+      name: "{{ item }}"
+      state: latest
+      enablerepo: rhel-7-server-extras-rpms
+    with_items:
+      - cockpit
+      - vim
+      - tree
+      - screen
+      - sg3_utils
+      - nfs-utils
+      - ipmitool
+      - iperf3
+    tags:
+      - misc

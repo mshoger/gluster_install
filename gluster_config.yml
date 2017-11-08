@@ -1,0 +1,66 @@
+# file: gluster_config.yml
+# Created by Mark Shoger, Red Hat - mshoger@redhat.com
+# invocation: ansible-playbook -i inventory gluster-config.yml
+# You should have already run the gluster_install.yml playbook before this one.
+# Ensure inventory includes all gluster hosts or dynamically grabs them from EC2
+# DANGER! Double check/update the devices and partitions or you could *seriously* hose your systems!
+---
+- hosts: nodes
+  vars:
+    gluster_devs:
+      - xvdb
+      - xvdc
+      - xvdd
+      - xvde
+    gluster_parts:
+      - xvdb1
+      - xvdc1
+      - xvdd1
+      - xvde1
+    brick_paths:
+      - /bricks/brick1
+      - /bricks/brick2
+      - /bricks/brick3
+      - /bricks/brick4
+    gluster_vols:
+      - test_vol
+
+  tasks:
+    - name: Create all the partitions
+      parted:
+        device: "/dev/{{ item }}"
+        number: 1
+        state: present
+      with_items: "{{ gluster_devs }}"
+
+    - name: Formats all the things
+      filesystem:
+        fstype: xfs
+        dev: "/dev/{{ item }}"
+      with_items: "{{ gluster_parts }}"
+
+    - name: Creates brick directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        recurse: yes
+      with_items: "{{ brick_paths }}"
+
+    - name: Mounts all the things
+      mount:
+        path: "{{ item.0 }}"
+        src: "/dev/{{ item.1 }}"
+        fstype: xfs
+        opts: rw,inode64,noatime,nouuid
+        dump: 1
+        passno: 2
+        state: mounted
+      with_together:
+        - "{{ brick_paths }}"
+        - "{{ gluster_parts }}"
+
+    - name: Create data folders for bricks
+      file:
+        path: "{{ item }}/brick"
+        state: directory
+      with_items: "{{ brick_paths }}"

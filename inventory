@@ -1,0 +1,18 @@
+# file: inventory
+# Created by Mark Shoger, Red Hat - mshoger@redhat.com
+# Use: Add systems to this file for use with the gluster_install.yml and
+# gluster_client.yml playbooks. Note that all these systems need to have forward
+# AND reverse DNS working correctly and static hostname set. Delete or comment
+# out any unused nodes or nodes to exclude from a particular run. Add nodes or
+# clients as desired.
+
+[nodes]
+gluster1.yournetwork.dev
+gluster2.yournetwork.dev
+gluster3.yournetwork.dev
+gluster4.yournetwork.dev
+gluster5.yournetwork.dev
+gluster6.yournetwork.dev
+
+[clients]
+glusterclient.yournetwork.dev
